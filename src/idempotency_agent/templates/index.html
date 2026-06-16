@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Idempotency Test Agent</title>
+<style>
+  :root {
+    --bg:#f5f7fa; --card:#fff; --ink:#1a1a2e; --muted:#64748b;
+    --line:#e2e8f0; --brand:#3b82f6; --brand-light:#eff6ff;
+    --pass:#16a34a; --fail:#dc2626; --error:#d97706;
+    --ai:#7c3aed; --ai-light:#f5f3ff;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:var(--bg); color:var(--ink); margin:0; padding:24px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:.9rem; margin-bottom:24px; }
+  .wrap { display:grid; grid-template-columns:minmax(0,440px) minmax(0,1fr); gap:24px; align-items:start; }
+  @media(max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border-radius:12px; padding:20px;
+          box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  fieldset { border:1px solid var(--line); border-radius:10px; margin:0 0 16px; padding:14px 16px; }
+  legend { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em;
+           color:var(--muted); font-weight:700; padding:0 6px; }
+  label { display:block; font-size:.8rem; font-weight:600; margin:10px 0 4px; }
+  label:first-of-type { margin-top:0; }
+  input,select,textarea { width:100%; padding:8px 10px; border:1px solid var(--line);
+           border-radius:8px; font-size:.88rem; font-family:inherit; background:#fff; }
+  textarea { resize:vertical; }
+  textarea.mono { font-family:ui-monospace,Menlo,monospace; font-size:.82rem; }
+  .hint { font-size:.72rem; color:var(--muted); margin-top:3px; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:8px;
+           padding:11px 18px; font-size:.92rem; font-weight:600; cursor:pointer; width:100%; }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  details summary { cursor:pointer; font-size:.82rem; color:var(--brand); font-weight:600; margin-bottom:8px; }
+
+  /* Plan card */
+  .plan-card { background:var(--ai-light); border:1px solid #ddd6fe; border-radius:10px;
+               padding:14px 16px; margin-bottom:16px; }
+  .plan-card h3 { margin:0 0 10px; font-size:.88rem; color:var(--ai); }
+  .plan-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; }
+  .plan-item { font-size:.8rem; }
+  .plan-item .pk { color:var(--muted); }
+  .plan-item .pv { font-family:ui-monospace,Menlo,monospace; color:var(--ink); font-weight:600; }
+  .plan-notes { font-size:.8rem; color:var(--muted); margin-top:8px; font-style:italic; }
+
+  /* Summary stats */
+  .summary { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:12px 18px; text-align:center; flex:1; min-width:80px; }
+  .stat .num { font-size:1.6rem; font-weight:700; }
+  .stat .lbl { font-size:.72rem; color:var(--muted); }
+  .pass{color:var(--pass)} .fail{color:var(--fail)} .error{color:var(--error)}
+
+  /* Result cards */
+  .res { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .res h3 { margin:0; font-size:.92rem; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .res p { margin:4px 0 0; font-size:.82rem; color:var(--muted); }
+  .badge { padding:2px 10px; border-radius:99px; font-size:.74rem; font-weight:700; }
+  .b-pass{background:#dcfce7;color:var(--pass)} .b-fail{background:#fee2e2;color:var(--fail)}
+  .b-error{background:#fef3c7;color:var(--error)}
+  pre { background:#f8fafc; border-radius:6px; padding:10px; font-size:.76rem; overflow-x:auto; margin:8px 0 0; }
+  .empty { color:var(--muted); font-size:.9rem; text-align:center; padding:40px 0; }
+  .fail-reason { color:var(--fail); font-size:.8rem; margin-top:6px; }
+  .err-box { background:#fef2f2; border:1px solid #fecaca; border-radius:8px;
+             padding:12px; color:var(--fail); font-size:.85rem; margin-bottom:12px; }
+
+  /* AI analysis */
+  .ai-block { border:1px solid #ddd6fe; border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+  .ai-block h3 { margin:0 0 6px; font-size:.92rem; display:flex; justify-content:space-between; align-items:center; }
+  .b-idempotent{background:#dcfce7;color:var(--pass)}
+  .b-not-idempotent{background:#fee2e2;color:var(--fail)}
+  .b-inconclusive{background:#fef3c7;color:var(--error)}
+
+  /* Calls table */
+  .calls-table { width:100%; border-collapse:collapse; font-size:.78rem; margin-top:8px; }
+  .calls-table th { background:#f1f5f9; text-align:left; padding:6px 8px; font-weight:600;
+                    color:var(--muted); border-bottom:1px solid var(--line); white-space:nowrap; }
+  .calls-table td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .calls-table tr:last-child td { border-bottom:none; }
+  .calls-table td.mono { font-family:ui-monospace,Menlo,monospace; }
+  .calls-table td.sc-pass { color:var(--pass); font-weight:700; }
+  .calls-table td.sc-fail { color:var(--fail); font-weight:700; }
+  .calls-table td.sc-error { color:var(--error); font-weight:700; }
+  .json-cell { max-width:260px; max-height:80px; overflow:auto;
+               background:#f8fafc; border-radius:4px; padding:4px 6px;
+               font-family:ui-monospace,Menlo,monospace; white-space:pre; font-size:.72rem; }
+
+  /* Step indicator */
+  .steps { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .step { display:flex; align-items:center; gap:6px; font-size:.8rem; color:var(--muted); }
+  .step .dot { width:20px; height:20px; border-radius:50%; background:var(--line);
+               display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; }
+  .step.active .dot { background:var(--brand); color:#fff; }
+  .step.done .dot { background:var(--pass); color:#fff; }
+  .step-sep { color:var(--line); }
+</style>
+</head>
+<body>
+<h1>🔍 Idempotency Test Agent</h1>
+<div class="sub">Paste curl command → AI tự phân tích → chạy bộ test idempotency tự động.</div>
+
+<div class="wrap">
+  <!-- ── FORM ── -->
+  <form id="form" class="card">
+
+    <fieldset>
+      <legend>Curl command</legend>
+      <textarea id="curl-input" name="curl" class="mono" rows="7" required
+        placeholder="curl -X POST https://api.example.com/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer eyJhbG...' \
+  -H 'Idempotency-Key: order-001' \
+  -d '{&quot;product_id&quot;: &quot;abc&quot;, &quot;qty&quot;: 1}'"></textarea>
+      <div class="hint">Paste nguyên curl command — bao gồm headers, body, token nếu có.</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Mô tả idempotency key</legend>
+      <textarea name="description" rows="3"
+        placeholder="Ví dụ: Header 'Idempotency-Key' kiểm soát idempotency, giá trị là UUID v4.
+Hoặc: Field 'request_id' trong body là key, dùng giá trị 'req-001' để test."></textarea>
+      <div class="hint">Mô tả bằng tiếng Việt — AI sẽ đọc và tự cấu hình test. Để trống nếu muốn AI tự đoán.</div>
+    </fieldset>
+
+    <details>
+      <summary>Tùy chọn nâng cao (test config, DB)</summary>
+      <fieldset>
+        <legend>Response config</legend>
+        <label>Response data field <span style="font-weight:400;color:var(--muted)">(để trống = AI tự detect)</span></label>
+        <input name="response_data_path" value="data">
+        <div class="hint">Nếu API wrap response trong envelope (vd: <code>{returnCode, data: [...]}</code>), nhập tên field chứa payload thực, ví dụ <code>data</code>. AI sẽ tự detect nếu để trống.</div>
+      </fieldset>
+      <fieldset>
+        <legend>Test config</legend>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><label>N calls</label><input name="n_calls" type="number" placeholder="3"></div>
+          <div style="flex:1"><label>Concurrent workers</label><input name="concurrent" type="number" placeholder="5"></div>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>MongoDB (tùy chọn)</legend>
+        <input name="mongo_uri" placeholder="mongodb://localhost:27017" style="margin-bottom:8px">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input name="mongo_db" placeholder="db"><input name="mongo_collection" placeholder="collection">
+        </div>
+        <input name="mongo_query" placeholder='{"product_id": "abc"}'>
+      </fieldset>
+      <fieldset>
+        <legend>MySQL (tùy chọn)</legend>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input name="mysql_host" placeholder="host"><input name="mysql_port" placeholder="3306">
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input name="mysql_user" placeholder="user"><input name="mysql_password" placeholder="password">
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input name="mysql_database" placeholder="database"><input name="mysql_table" placeholder="table">
+        </div>
+        <input name="mysql_where" placeholder="reference_id = 'pay-001'">
+      </fieldset>
+    </details>
+
+    <button type="submit" id="submit">🤖 Phân tích & Chạy test</button>
+    <div id="form-error" class="fail-reason" style="margin-top:8px"></div>
+  </form>
+
+  <!-- ── RESULTS ── -->
+  <div class="card">
+    <div id="steps" class="steps" style="display:none">
+      <div class="step" id="s1"><div class="dot">1</div><span>Parse curl</span></div>
+      <div class="step-sep">→</div>
+      <div class="step" id="s2"><div class="dot">2</div><span>AI phân tích</span></div>
+      <div class="step-sep">→</div>
+      <div class="step" id="s3"><div class="dot">3</div><span>Chạy test</span></div>
+      <div class="step-sep">→</div>
+      <div class="step" id="s4"><div class="dot">4</div><span>AI nhận định</span></div>
+    </div>
+    <div id="results"><div class="empty">Kết quả sẽ hiển thị ở đây sau khi chạy.</div></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const form = $('#form');
+const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function intOrNull(v) { return v && v.trim() !== '' ? parseInt(v, 10) : null; }
+
+function buildPayload() {
+  const f = form;
+  const curl = f.curl.value.trim();
+  if (!curl) throw new Error('Vui lòng nhập curl command');
+
+  const payload = {
+    curl,
+    description: f.description.value.trim(),
+    response_data_path: f.response_data_path.value.trim() || null,
+    n_calls: intOrNull(f.n_calls.value),
+    concurrent: intOrNull(f.concurrent.value),
+    analyze: true,
+  };
+
+  if (f.mongo_uri.value.trim()) {
+    let q = null;
+    try { q = f.mongo_query.value.trim() ? JSON.parse(f.mongo_query.value) : null; } catch(e) {}
+    payload.mongo = {
+      uri: f.mongo_uri.value.trim(),
+      db: f.mongo_db.value.trim() || null,
+      collection: f.mongo_collection.value.trim() || null,
+      query: q,
+    };
+  }
+  if (f.mysql_host.value.trim()) {
+    payload.mysql = {
+      host: f.mysql_host.value.trim(),
+      port: intOrNull(f.mysql_port.value) || 3306,
+      user: f.mysql_user.value.trim() || null,
+      password: f.mysql_password.value || null,
+      database: f.mysql_database.value.trim() || null,
+      table: f.mysql_table.value.trim() || null,
+      where: f.mysql_where.value.trim() || null,
+    };
+  }
+  return payload;
+}
+
+function setStep(n) {
+  ['s1','s2','s3','s4'].forEach((id, i) => {
+    const el = $('#' + id);
+    el.className = 'step' + (i + 1 < n ? ' done' : i + 1 === n ? ' active' : '');
+  });
+}
+
+const badgeClass = s => ({ PASS:'b-pass', FAIL:'b-fail', ERROR:'b-error' }[s] || 'b-error');
+const verdictClass = v => ({
+  IDEMPOTENT:'b-idempotent', NOT_IDEMPOTENT:'b-not-idempotent', INCONCLUSIVE:'b-inconclusive'
+}[v] || 'b-error');
+
+function renderPlan(p, design) {
+  if (!p) return '';
+  const badge = { uuid4:'UUID v4 tự gen', timestamp:'Timestamp tự gen', fixed:'Giá trị cố định' }[p.key_gen] || p.key_gen;
+  let designHtml = '';
+  if (design && design.length) {
+    const rows = design.map((tc, i) => {
+      const flags = [];
+      if (tc.should_responses_be_identical) flags.push('<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-size:.7rem">identical</span>');
+      if (tc.should_db_not_duplicate) flags.push('<span style="background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:4px;font-size:.7rem">no-dup</span>');
+      if (tc.use_different_key) flags.push('<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:.7rem">diff-key</span>');
+      if (tc.concurrent) flags.push('<span style="background:#fce7f3;color:#9d174d;padding:1px 6px;border-radius:4px;font-size:.7rem">concurrent</span>');
+      return `<tr>
+        <td style="color:var(--muted);font-size:.78rem">${i+1}</td>
+        <td class="mono" style="font-size:.78rem">${tc.name}</td>
+        <td style="font-size:.78rem">${tc.description}</td>
+        <td style="font-size:.75rem;color:var(--muted)">${tc.repeat_count}×</td>
+        <td style="font-size:.75rem">${flags.join(' ')}</td>
+      </tr>`;
+    }).join('');
+    designHtml = `<div style="margin-top:12px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--ai);margin-bottom:6px">📋 AI đã thiết kế ${design.length} test cases</div>
+      <div style="overflow-x:auto"><table class="calls-table">
+        <thead><tr><th>#</th><th>Name</th><th>Description</th><th>Calls</th><th>Flags</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+  return `<div class="plan-card">
+    <h3>🤖 AI đã phân tích — cấu hình idempotency</h3>
+    <div class="plan-grid">
+      <div class="plan-item"><span class="pk">Key location</span><br><span class="pv">${p.key_location}</span></div>
+      <div class="plan-item"><span class="pk">Key field</span><br><span class="pv">${p.key_name}</span></div>
+      <div class="plan-item"><span class="pk">Key value</span><br><span class="pv" title="${p.key_value}">${p.key_value.length > 24 ? p.key_value.slice(0,22)+'…' : p.key_value}</span></div>
+      <div class="plan-item"><span class="pk">Key gen</span><br><span class="pv">${badge}</span></div>
+      <div class="plan-item"><span class="pk">Expected status</span><br><span class="pv">${p.expected_status}</span></div>
+      <div class="plan-item"><span class="pk">Ignore fields</span><br><span class="pv">${p.ignore_fields.length ? p.ignore_fields.join(', ') : '—'}</span></div>
+      <div class="plan-item"><span class="pk">Response data field</span><br><span class="pv">${p.response_data_path || '(full response)'}</span></div>
+    </div>
+    ${p.notes ? `<div class="plan-notes">${p.notes}</div>` : ''}
+    ${designHtml}
+  </div>`;
+}
+
+function renderAnalysis(a) {
+  if (!a) return '';
+  if (a.error) return `<div class="ai-block"><h3>🤖 AI analysis</h3><div class="fail-reason">${a.error}</div></div>`;
+  const causes = (a.likely_causes || []).map(c => `<li>${c}</li>`).join('');
+  const recs = (a.recommendations || []).map(r => `<li>${r}</li>`).join('');
+  return `<div class="ai-block">
+    <h3><span>🤖 AI verdict</span><span class="badge ${verdictClass(a.verdict)}">${a.verdict}</span></h3>
+    <p>${a.summary} <em>(confidence: ${a.confidence})</em></p>
+    ${causes ? `<p style="margin-top:8px"><strong>Nguyên nhân khả dĩ:</strong></p><ul style="margin:4px 0;padding-left:20px;font-size:.82rem">${causes}</ul>` : ''}
+    ${recs ? `<p style="margin-top:8px"><strong>Khuyến nghị:</strong></p><ul style="margin:4px 0;padding-left:20px;font-size:.82rem">${recs}</ul>` : ''}
+  </div>`;
+}
+
+function render(data) {
+  const s = data.summary;
+  let html = renderPlan(data.plan, data.test_design);
+  html += `<div class="summary">
+    <div class="stat"><div class="num">${s.total}</div><div class="lbl">Total</div></div>
+    <div class="stat"><div class="num pass">${s.passed}</div><div class="lbl">Passed</div></div>
+    <div class="stat"><div class="num fail">${s.failed}</div><div class="lbl">Failed</div></div>
+    <div class="stat"><div class="num error">${s.errored}</div><div class="lbl">Error</div></div>
+  </div>`;
+  html += renderAnalysis(data.analysis);
+  for (const r of data.results) {
+    const rows = r.calls.map(c => {
+      const scClass = c.error ? 'sc-error' : (c.status_code >= 200 && c.status_code < 300 ? 'sc-pass' : 'sc-fail');
+      const reqBody = c.request_body != null ? JSON.stringify(c.request_body, null, 2) : '—';
+      const resData = c.response_body != null ? JSON.stringify(c.response_body, null, 2) : (c.error || '—');
+      const resFull = c.response_body_full != null && JSON.stringify(c.response_body_full) !== JSON.stringify(c.response_body)
+        ? JSON.stringify(c.response_body_full, null, 2) : null;
+      const key = c.idempotency_key || '—';
+      const resCell = resFull
+        ? `<div class="json-cell">${escHtml(resData)}</div>
+           <details style="margin-top:4px"><summary style="font-size:.7rem;color:var(--muted);cursor:pointer">full response</summary>
+           <div class="json-cell" style="margin-top:4px;opacity:.7">${escHtml(resFull)}</div></details>`
+        : `<div class="json-cell">${escHtml(resData)}</div>`;
+      return `<tr>
+        <td style="text-align:center;color:var(--muted)">#${c.index}</td>
+        <td class="mono ${scClass}">${c.error ? '⚠ ERR' : c.status_code}</td>
+        <td class="mono" style="white-space:nowrap">${c.response_time_ms}ms</td>
+        <td class="mono" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${key}">${key}</td>
+        <td><div class="json-cell">${escHtml(reqBody)}</div></td>
+        <td>${resCell}</td>
+      </tr>`;
+    }).join('');
+
+    html += `<div class="res">
+      <h3><span><code>${r.scenario}</code></span><span class="badge ${badgeClass(r.status)}">${r.status}</span></h3>
+      <p>${r.description}</p>
+      ${r.failure_reason ? `<div class="fail-reason">→ ${r.failure_reason}</div>` : ''}
+      ${r.response_diff ? `<details><summary>Response diff</summary><pre>${JSON.stringify(r.response_diff,null,2)}</pre></details>` : ''}
+      <details open>
+        <summary>Calls (${r.calls.length})</summary>
+        <div style="overflow-x:auto">
+          <table class="calls-table">
+            <thead><tr>
+              <th>#</th><th>Status</th><th>Time</th>
+              <th>Idempotency Key</th><th>Request Body</th><th>Response Body</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </details>
+    </div>`;
+  }
+  $('#results').innerHTML = html;
+}
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  $('#form-error').textContent = '';
+  const btn = $('#submit');
+  let payload;
+  try { payload = buildPayload(); }
+  catch (err) { $('#form-error').textContent = err.message; return; }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang xử lý...';
+  $('#steps').style.display = 'flex';
+  setStep(1);
+  $('#results').innerHTML = '<div class="empty">Đang parse curl và phân tích...</div>';
+
+  // Simulate step progression during long wait
+  const stepTimer = setTimeout(() => setStep(2), 800);
+  const stepTimer2 = setTimeout(() => setStep(3), 3000);
+
+  try {
+    const res = await fetch('/api/run-curl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    clearTimeout(stepTimer); clearTimeout(stepTimer2);
+    setStep(4);
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(detail.detail || `Server ${res.status}`);
+    }
+    const data = await res.json();
+    setStep(5); // all done
+    ['s1','s2','s3','s4'].forEach(id => { const el = $('#'+id); if(el) el.className = 'step done'; });
+    render(data);
+  } catch (err) {
+    clearTimeout(stepTimer); clearTimeout(stepTimer2);
+    $('#results').innerHTML = `<div class="err-box">❌ ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Phân tích & Chạy test';
+  }
+});
+</script>
+</body>
+</html>
