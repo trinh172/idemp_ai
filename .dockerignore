@@ -1,0 +1,11 @@
+.env
+.greennode.json
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+reports
+*.egg-info
+.git
+.agentbase/

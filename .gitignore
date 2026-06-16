@@ -19,6 +19,7 @@ coverage.xml
 
 # Env & secrets
 .env
+.greennode.json
 
 # Reports (generated)
 reports/*.html
@@ -27,3 +28,4 @@ reports/*.html
 .DS_Store
 .idea/
 .vscode/
+.agentbase/

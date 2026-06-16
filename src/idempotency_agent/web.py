@@ -134,6 +134,11 @@ class CurlRunRequest(BaseModel):
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (_TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")

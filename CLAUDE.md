@@ -8,6 +8,8 @@ Python SDET tool that automatically tests HTTP API idempotency — verifying tha
 
 **Read `SKILL.md` before making any changes** — it contains mandatory architecture rules that must be enforced.
 
+Nếu user hỏi về deploy agent lên AgentBase: đọc [`README.md`](greennode-agentbase-skills-main/README.md)
+
 ## Commands
 
 ```bash
