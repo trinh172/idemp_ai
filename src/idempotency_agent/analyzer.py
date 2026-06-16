@@ -9,6 +9,7 @@ Theo SKILL.md: layer này gọi API ngoài → KHÔNG đặt trong validator (va
 Dùng OpenAI-compatible API (OpenRouter, MiniMax, v.v.) — cấu hình qua AI_API_KEY / AI_MODEL / AI_BASE_URL.
 """
 import json
+import re
 from dataclasses import dataclass
 
 from idempotency_agent.config import settings
@@ -101,7 +102,6 @@ def analyze_results(
     try:
         response = client.chat.completions.create(
             model=model or settings.ai_model,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -114,7 +114,23 @@ def analyze_results(
     if not text:
         raise AnalyzerError("Model không trả về nội dung text.")
 
-    data = json.loads(text)
+    # Extract JSON — hỗ trợ model không dùng response_format
+    def _extract_json(t: str) -> str:
+        t = t.strip()
+        try:
+            json.loads(t)
+            return t
+        except json.JSONDecodeError:
+            pass
+        m = re.search(r"```(?:json)?\s*([\s\S]+?)```", t)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"(\{[\s\S]*\})", t)
+        if m:
+            return m.group(1)
+        return t
+
+    data = json.loads(_extract_json(text))
     return Analysis(
         verdict=data["verdict"],
         confidence=data["confidence"],

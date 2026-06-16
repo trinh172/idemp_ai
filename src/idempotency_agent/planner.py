@@ -5,10 +5,31 @@ tự động sinh ra cấu hình test (key location/name/gen, expected status, i
 Theo SKILL.md: gọi API ngoài → KHÔNG đặt trong validator/generator.
 """
 import json
+import re
 from dataclasses import dataclass, field
 
 from idempotency_agent.config import settings
 from idempotency_agent.models import AITestCase
+
+
+def _extract_json(text: str) -> str:
+    """Extract JSON từ text — hỗ trợ model không dùng response_format."""
+    text = text.strip()
+    # Thử parse trực tiếp
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        pass
+    # Tìm ```json ... ``` block
+    m = re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
+    if m:
+        return m.group(1).strip()
+    # Tìm JSON object/array đầu tiên
+    m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", text)
+    if m:
+        return m.group(1)
+    return text
 
 _SYSTEM_PROMPT = """\
 Bạn là chuyên gia SDET phân tích HTTP API để cấu hình test idempotency.
@@ -197,7 +218,6 @@ def plan_from_curl(
     try:
         response = client.chat.completions.create(
             model=model or settings.ai_model,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -210,7 +230,7 @@ def plan_from_curl(
     if not text:
         raise PlannerError("AI không trả về nội dung.")
 
-    data = json.loads(text)
+    data = json.loads(_extract_json(text))
     return TestPlan(
         key_location=data.get("key_location", "header"),
         key_name=data.get("key_name", "Idempotency-Key"),
@@ -269,7 +289,6 @@ def design_test_cases(
     try:
         response = client.chat.completions.create(
             model=model or settings.ai_model,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _DESIGN_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -282,7 +301,7 @@ def design_test_cases(
     if not text:
         raise PlannerError("AI không trả về nội dung.")
 
-    raw = json.loads(text)
+    raw = json.loads(_extract_json(text))
     # Tìm list trong response: thử các key phổ biến rồi fallback tìm value đầu tiên là list
     if isinstance(raw, list):
         items = raw
